@@ -79,20 +79,20 @@ def read_file_content(file_path):
                         text += page_text + "\n"
 
         else:
-            return None, "❌ Sorry! We only accept PDF or Word (.docx) files."
+            return None, "Sorry! We only accept PDF or Word (.docx) files."
 
         # Check if we got any text
         if not text.strip():
-            return None, "❌ Couldn't read any text from your file."
+            return None, "Couldn't read any text from your file."
 
         # Check if the CV is too short
         if len(text.split()) < 50:
-            return None, "❌ The CV seems to be too short."
+            return None, "The CV seems to be too short."
 
         return text, "✅ Successfully read your CV!"
 
     except Exception as e:
-        return None, f"❌ Oops! There was a problem reading your file: {str(e)}"
+        return None, f"Oops! There was a problem reading your file: {str(e)}"
 
 
 async def create_cover_letter(job_description, cv_text):
@@ -118,7 +118,7 @@ async def welcome():
     """Show welcome message when someone starts the chat"""
 
     # Main welcome message
-    await cl.Message(content="# 👋 Welcome to the Cover Letter Generator! 📝").send()
+    await cl.Message(content="#Welcome to the Cover Letter Generator!").send()
 
     # Second welcome message
     await cl.Message(content="Please provide me with the following information:").send()
@@ -174,12 +174,12 @@ async def main(message: cl.Message):
             await cl.Message(content=gen_message).send()
             return
 
-        # Save everything and move to feedback step
+        # Save and move to feedback step - NEED TO IMPLEMENT A FEEDBACK LOOP
         chat_history['cv_text'] = cv_text
         chat_history['current_cover_letter'] = cover_letter
         chat_history['state'] = 'feedback'
         cl.user_session.set('history', chat_history)
 
-        # Show the cover letter and ask for feedback
+        # Show the cover letter
         await cl.Message(content="**Here is your cover letter").send()
         await cl.Message(content=cover_letter).send()
