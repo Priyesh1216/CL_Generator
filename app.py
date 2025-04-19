@@ -2,8 +2,6 @@ import os
 import chainlit as cl
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
-import requests
-import json
 from langchain.prompts import ChatPromptTemplate
 from langchain.chains import LLMChain
 import pdfplumber
