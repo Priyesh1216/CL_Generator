@@ -183,3 +183,27 @@ async def main(message: cl.Message):
         # Show the cover letter
         await cl.Message(content="**Here is your cover letter").send()
         await cl.Message(content=cover_letter).send()
+
+        await cl.Message(content="DEBUG: About to ask for feedback").send()
+
+        satisfied_menu = [
+            cl.Action(name="Yes",
+                      payload={"value": "yes"},
+                      label="Yes",
+                      tooltip="Yes, I'm satisfied with the cover letter"),
+
+            cl.Action(name="No",
+                      payload={"value": "no"},
+                      label="No",
+                      tooltip="No, I'm not satisfied with the cover letter")
+        ]
+
+        try:
+            await cl.AskActionMessage(
+                content="Are you satisfied with the cover letter?",
+                actions=satisfied_menu
+            ).send()
+
+            await cl.Message(content="DEBUG: Feedback request sent").send()
+        except Exception as e:
+            await cl.Message(content=f"ERROR: {str(e)}").send()
