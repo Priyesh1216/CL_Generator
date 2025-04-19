@@ -5,6 +5,7 @@ from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 from langchain.chains import LLMChain
 import pdfplumber
+import docx2txt
 
 # Load environment variables
 load_dotenv()
@@ -127,6 +128,11 @@ def read_file_content(file_path):
                     if page_text:
                         text += page_text + "\n"
 
+        # For Word documents
+        elif file_path.endswith(".docx"):
+            # Use docx2txt to extract text from Word document
+            text = docx2txt.process(file_path)
+
         else:
             return None, "Only PDF files are supported. Please upload PDF files."
 
@@ -200,8 +206,9 @@ async def main(message: cl.Message):
 
         # Immediately ask for file upload instead of waiting for another message
         files = await cl.AskFileMessage(
-            content="### Please upload your CV/Resume as a PDF",
-            accept=["application/pdf"]
+            content="### Please upload your CV/Resume as a PDF or docx",
+            accept=["application/pdf",
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]
         ).send()
 
         # Process the uploaded file
