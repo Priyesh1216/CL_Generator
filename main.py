@@ -14,7 +14,7 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 
 # Initialize Language Model
 llm = ChatOpenAI(
-    model_name="gpt-4",
+    model_name="gpt-3.5-turbo",
     temperature=0.7,
     openai_api_key=openai_api_key
 )
@@ -27,7 +27,6 @@ cover_letter_template = """
  
  Candidate's Resume:
  {cv_text}
- 
  
  Please make sure the cover letter:
  1. Matches what the job requires (use specific examples from the CV)
@@ -46,6 +45,58 @@ cover_letter_prompt = ChatPromptTemplate.from_template(cover_letter_template)
 cover_letter_chain = LLMChain(
     llm=llm, prompt=cover_letter_prompt, output_key="cover_letter")
 
+
+async def revise_cover_letter(job_description, cv_text, current_cover_letter, feedback):
+    """
+    Generate a revised cover letter based on user feedback
+    Returns: (revised_cover_letter, message)
+    """
+    revision_template = """
+    You are an expert career coach. Revise the cover letter based on the user's specific feedback.
+    
+    Job Description:
+    {job_description}
+    
+    Candidate's Resume:
+    {cv_text}
+    
+    Current Cover Letter:
+    {current_cover_letter}
+    
+    User's Feedback:
+    {feedback}
+    
+    IMPORTANT INSTRUCTIONS:
+    1. DO NOT rewrite the entire cover letter. Start with the current cover letter as your base.
+    2. ONLY modify the specific parts mentioned in the user's feedback.
+    3. Preserve all other content, tone, and structure from the original cover letter.
+    4. Make targeted changes that directly address the user's specific requests.
+    5. If the user requests contradicts the resume, prioritize the user's feedback over CV content.
+    6. Maintain the professional tone and appropriate length.
+    
+    Write the revised cover letter below:
+    """
+
+    revision_prompt = ChatPromptTemplate.from_template(revision_template)
+
+    revision_chain = LLMChain(
+        llm=llm, prompt=revision_prompt, output_key="revised_cover_letter")
+
+    try:
+        # Ask the AI to revise the cover letter
+        result = revision_chain.invoke({
+            "job_description": job_description,
+            "cv_text": cv_text,
+            "current_cover_letter": current_cover_letter,
+            "feedback": feedback
+        })
+
+        return result['revised_cover_letter'], "Cover letter revised successfully!"
+
+    except Exception as e:
+        return current_cover_letter, f"Error revising cover letter: {str(e)}"
+
+
 # Helper functions
 
 
@@ -57,9 +108,9 @@ def check_job_description(text):
 
     # If it is too short, do not proceed with the generation
     if len(text.split()) < 20:
-        return False, "⚠️ The job description seems too short. We need more details to make a good cover letter!"
+        return False, "The job description is too short. Provide more details."
 
-    return True, "✅ Job description looks good!"
+    return True, "It is good"
 
 
 def read_file_content(file_path):
@@ -79,7 +130,7 @@ def read_file_content(file_path):
                         text += page_text + "\n"
 
         else:
-            return None, "Sorry! We only accept PDF or Word (.docx) files."
+            return None, "Only PDF files are supported. Please upload PDF files."
 
         # Check if we got any text
         if not text.strip():
@@ -87,9 +138,9 @@ def read_file_content(file_path):
 
         # Check if the CV is too short
         if len(text.split()) < 50:
-            return None, "The CV seems to be too short."
+            return None, "The CV is too short."
 
-        return text, "✅ Successfully read your CV!"
+        return text, "Successfully read your CV!"
 
     except Exception as e:
         return None, f"Oops! There was a problem reading your file: {str(e)}"
@@ -121,13 +172,12 @@ async def welcome():
     await cl.Message(content="#Welcome to the Cover Letter Generator!").send()
 
     # Second welcome message
-    await cl.Message(content="Please provide me with the following information:").send()
-    await cl.Message(content="1. Job Description").send()
+    await cl.Message(content="Please provide me with the the job description (text):").send()
 
 
 @cl.on_message
 async def main(message: cl.Message):
-    # Get the current state of our conversation
+    # Get the current state of conversation
     chat_history = cl.user_session.get('history', {})
     current_step = chat_history.get('state', 'job_description')
 
@@ -137,6 +187,7 @@ async def main(message: cl.Message):
         await status_msg.send()
 
         # Check if the job description looks valid
+        # check_job_description returns: boolean, string
         is_valid, feedback = check_job_description(message.content)
         if not is_valid:
             await cl.Message(content=feedback).send()
@@ -165,45 +216,127 @@ async def main(message: cl.Message):
         await status_msg.send()
 
         # Generate the cover letter
-        cover_letter, gen_message = await create_cover_letter(
+        cover_letter, generation_message = await create_cover_letter(
             chat_history['job_description'],
             cv_text
         )
 
         if cover_letter is None:
-            await cl.Message(content=gen_message).send()
+            await cl.Message(content=generation_message).send()
             return
 
-        # Save and move to feedback step - NEED TO IMPLEMENT A FEEDBACK LOOP
+        # Save and move to feedback step
         chat_history['cv_text'] = cv_text
         chat_history['current_cover_letter'] = cover_letter
-        chat_history['state'] = 'feedback'
+        chat_history['feedback_count'] = 0
         cl.user_session.set('history', chat_history)
 
         # Show the cover letter
-        await cl.Message(content="**Here is your cover letter").send()
+        await cl.Message(content="**Here is your cover letter**").send()
         await cl.Message(content=cover_letter).send()
 
-        await cl.Message(content="DEBUG: About to ask for feedback").send()
-
-        satisfied_menu = [
-            cl.Action(name="Yes",
-                      payload={"value": "yes"},
-                      label="Yes",
-                      tooltip="Yes, I'm satisfied with the cover letter"),
-
-            cl.Action(name="No",
-                      payload={"value": "no"},
-                      label="No",
-                      tooltip="No, I'm not satisfied with the cover letter")
-        ]
-
+        # Ask the user if they are satisfied
         try:
-            await cl.AskActionMessage(
+            is_satisfied = await cl.AskActionMessage(
                 content="Are you satisfied with the cover letter?",
-                actions=satisfied_menu
-            ).send()
+                actions=[
+                    cl.Action(name="Yes",
+                              payload={"value": "yes"},
+                              label="Yes",
+                              tooltip="Yes, I'm satisfied with the cover letter"),
 
-            await cl.Message(content="DEBUG: Feedback request sent").send()
+                    cl.Action(name="No",
+                              payload={"value": "no"},
+                              label="No",
+                              tooltip="No, I'm not satisfied with the cover letter")
+                ]).send()
+
+            # Process action result immediately
+            if is_satisfied.get("value") == "yes":
+                await cl.Message(content="Your cover letter is ready to use! Good luck on your application.").send()
+                chat_history['state'] = 'completed'
+                cl.user_session.set('history', chat_history)
+            else:
+                # Handle "No" response immediately
+                feedback_count = chat_history.get('feedback_count', 0)
+                remaining = 5 - feedback_count
+
+                # Ask for specific feedback right away
+                await cl.Message(content=f"Please provide specific feedback on what you'd like to change. You have {remaining} revision(s) remaining.").send()
+
+                # Set state for next message
+                chat_history['state'] = 'waiting_for_feedback'
+                cl.user_session.set('history', chat_history)
+
+        except Exception as e:
+            await cl.Message(content=f"ERROR: {str(e)}").send()
+
+    # Handle user feedback for revisions
+    elif current_step == 'waiting_for_feedback':
+        # User has provided feedback, generate a new cover letter
+        status_msg = cl.Message(
+            content="Revising your cover letter based on your feedback...")
+        await status_msg.send()
+
+        # Get the feedback count
+        feedback_count = chat_history.get('feedback_count', 0)
+
+        # Generate a revised cover letter
+        revised_cover_letter, _ = await revise_cover_letter(
+            chat_history['job_description'],
+            chat_history['cv_text'],
+            chat_history['current_cover_letter'],
+            message.content  # This is the user's feedback
+        )
+
+        # Update chat history
+        chat_history['current_cover_letter'] = revised_cover_letter
+        chat_history['feedback_count'] += 1
+
+        # Update local variable
+        feedback_count = chat_history['feedback_count']
+        cl.user_session.set('history', chat_history)
+
+        # Show the revised cover letter
+        await cl.Message(content=f"**Here is revision #{feedback_count} of your cover letter**").send()
+        await cl.Message(content=revised_cover_letter).send()
+
+        # Check if max revisions reached
+        if feedback_count >= 5:
+            await cl.Message(content="You've reached the maximum number of revisions (5). This is your final cover letter.").send()
+            chat_history['state'] = 'completed'
+            cl.user_session.set('history', chat_history)
+            return
+
+        # Ask for feedback again with buttons
+        try:
+            is_satisfied = await cl.AskActionMessage(
+                content="Are you satisfied with the revised cover letter?",
+                actions=[
+                    cl.Action(name="Yes",
+                              payload={"value": "yes"},
+                              label="Yes",
+                              tooltip="Yes, I'm satisfied with the cover letter"),
+
+                    cl.Action(name="No",
+                              payload={"value": "no"},
+                              label="No",
+                              tooltip="No, I'm not satisfied with the cover letter")
+                ]).send()
+
+            # Process action result immediately
+            if is_satisfied.get("value") == "yes":
+                await cl.Message(content="Your cover letter is ready to use! Good luck on your application.").send()
+                chat_history['state'] = 'completed'
+                cl.user_session.set('history', chat_history)
+            else:
+                # Handle "No" response immediately
+                remaining = 5 - feedback_count
+                await cl.Message(content=f"Please provide specific feedback on what you'd like to change. You have {remaining} revision(s) remaining.").send()
+
+                # Set state for next message
+                chat_history['state'] = 'waiting_for_feedback'
+                cl.user_session.set('history', chat_history)
+
         except Exception as e:
             await cl.Message(content=f"ERROR: {str(e)}").send()
